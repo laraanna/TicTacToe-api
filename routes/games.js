@@ -3,8 +3,10 @@ const router = require('express').Router()
 const passport = require('../config/auth')
 const { Game } = require('../models')
 const utils = require('../lib/utils')
+const winner = require('../lib/winner')
 
 const authenticate = passport.authorize('jwt', { session: false })
+
 
 module.exports = io => {
   router
@@ -65,23 +67,59 @@ module.exports = io => {
       const id = req.params.id
       const patch = req.body.tile
       const players = req.body.players
+      const turn = req.body.turn
       const currentPlayer = req.body.currentPlayer
 
-      Game.findById(id)
-        .then((game) => {
-          if (!game) { return next() }
+      const noWinner = winner.isWinner(req.body.game.board) === null
+
+
+      if(noWinner){
+
+        Game.findById(id)
+          .then((game) => {
+            if (!game) { return next() }
 
           const newBoard = game.board
-          if (players[0].userId === currentPlayer.userId) {
+
+          let newTurn = game.turn
+
+
+          if (players[0].userId === currentPlayer.userId && patch.symbol === null && newTurn % 2 === 0) {
             newBoard[patch.index].symbol = "X"
-          } else if (players[1].userId === currentPlayer.userId){
+            newTurn += 1
+          } else if (players[1].userId === currentPlayer.userId && patch.symbol === null && newTurn % 2 !== 0){
             newBoard[patch.index].symbol = "O"
+            newTurn += 1
           }
 
+          const noNewWinner = winner.isWinner(newBoard) === null
 
-          const updatedGame = {
-            board: newBoard
-          }
+          let newWinner = game.winner
+          let newWinnerName = game.winnerName
+
+          noNewWinner ? (newWinner = false) : (newWinner = true)
+          noNewWinner ? (newWinnerName = null ):(newWinnerName = currentPlayer.name)
+
+          // if (noNewWinner) {
+          //   newWinner = false
+          //   newWinnerName = null
+          // } else {
+          //   newWinner = true
+          //   newWinnerName = currentPlayer.name
+          // }
+
+
+          //
+          // console.log("hi")
+          // console.log(newWinner)
+          // console.log(newWinnerName)
+
+            const updatedGame = {
+              board: newBoard,
+              winner: newWinner,
+              winnerName: newWinnerName,
+              turn: newTurn
+            }
 
           Game.findByIdAndUpdate(id, { $set: updatedGame }, { new: true })
             .then((game) => {
@@ -91,10 +129,15 @@ module.exports = io => {
               })
               res.json(game)
             })
+
             .catch((error) => next(error))
-        })
+          })
         .catch((error) => next(error))
+      }
+
     })
+
+
     .delete('/games/:id', authenticate, (req, res, next) => {
       const id = req.params.id
       Game.findByIdAndRemove(id)
